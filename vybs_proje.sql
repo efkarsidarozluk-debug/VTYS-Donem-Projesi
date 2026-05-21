@@ -510,3 +510,72 @@ INSERT INTO Degerlendirmeler (SiparisID, KullaniciID, RestoranID, Puan, Yorum) V
 (10, 10, 3, 5, 'Makarnanın sosu harikulade.');
 GO
 
+
+-- ============================================================
+-- 4. İLERİ DÜZEY SORGULAR (DQL & ANALİTİK)
+-- ============================================================
+
+-- SORGU 1: DETAYLI SİPARİŞ FİŞİ (Çoklu JOIN)
+SELECT
+    s.SiparisID                                  AS [Fatura No],
+    s.OlusturmaTarihi                            AS [Sipariş Tarihi],
+    s.Durum                                      AS [Sipariş Durumu],
+    k.Ad + ' ' + k.Soyad                         AS [Müşteri Adı],
+    k.Telefon                                    AS [Müşteri Telefon],
+    r.RestoranAdi                                AS [Restoran],
+    ISNULL(kry.Ad + ' ' + kry.Soyad, 'Atanmadı') AS [Kurye],
+    u.UrunAdi                                    AS [Ürün],
+    sd.Miktar                                    AS [Adet],
+    sd.BirimFiyat                                AS [Birim Fiyat (TL)],
+    (sd.Miktar * sd.BirimFiyat)                  AS [Kalem Toplamı (TL)],
+    s.ToplamTutar                                AS [Genel Toplam (TL)],
+    CASE WHEN s.AskidaYemekMi = 1 THEN 'Evet (Askıdan)' ELSE 'Hayır (Normal)' END AS [Ödeme Türü]
+FROM Siparisler s
+INNER JOIN Kullanicilar    k   ON s.KullaniciID = k.KullaniciID
+INNER JOIN Restoranlar     r   ON s.RestoranID  = r.RestoranID
+INNER JOIN SiparisDetaylari sd ON s.SiparisID   = sd.SiparisID
+INNER JOIN MenuUrunleri    u   ON sd.UrunID      = u.UrunID
+LEFT  JOIN Kullanicilar    kry ON s.KuryeID      = kry.KullaniciID
+WHERE s.SiparisID BETWEEN 91 AND 100;
+GO
+
+-- SORGU 2: RESTORAN ANALİZ RAPORU (GROUP BY & HAVING)
+SELECT
+    r.RestoranID                                 AS [Restoran ID],
+    r.RestoranAdi                                AS [Restoran Adı],
+    COUNT(s.SiparisID)                           AS [Toplam Sipariş Sayısı],
+    SUM(s.ToplamTutar)                           AS [Toplam Ciro (TL)],
+    ROUND(AVG(s.ToplamTutar), 2)                 AS [Ortalama Sepet Tutarı (TL)],
+    ROUND(MAX(s.ToplamTutar), 2)                 AS [En Yüksek Sepet (TL)]
+FROM Restoranlar r
+INNER JOIN Siparisler s ON r.RestoranID = s.RestoranID
+WHERE s.Durum = 'TeslimEdildi'
+  AND s.OlusturmaTarihi >= DATEADD(MONTH, -1, GETDATE())
+GROUP BY r.RestoranID, r.RestoranAdi
+HAVING COUNT(s.SiparisID) >= 1
+ORDER BY [Toplam Ciro (TL)] DESC;
+GO
+
+-- SORGU 3: BAĞIŞ YAPMAYAN AKTİF MÜŞTERİLER (NOT EXISTS)
+SELECT
+    k.KullaniciID                                AS [Müşteri ID],
+    k.Ad + ' ' + k.Soyad                         AS [Müşteri Adı],
+    k.Email                                      AS [E-Posta],
+    (SELECT COUNT(*) FROM Siparisler s2 WHERE s2.KullaniciID = k.KullaniciID) AS [Verdiği Sipariş Sayısı]
+FROM Kullanicilar k
+WHERE k.Rol = 'Musteri'
+  AND k.IsActive = 1
+  AND NOT EXISTS (
+      SELECT 1
+      FROM AskidaYemekBagislari b
+      WHERE b.BagisciKullaniciID = k.KullaniciID
+  )
+  AND (SELECT COUNT(*) FROM Siparisler s WHERE s.KullaniciID = k.KullaniciID) >= 1
+ORDER BY [Verdiği Sipariş Sayısı] DESC;
+GO
+
+-- GÖRÜNÜM RAPOR ÇIKTILARI
+SELECT * FROM vw_AskidaYemekHavuzDurumu ORDER BY MevcutBakiye DESC;
+SELECT * FROM vw_AktifRestoranMenuleri WHERE RestoranID = 1;
+GO
+
